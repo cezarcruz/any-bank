@@ -2,6 +2,7 @@
   (:require [io.pedestal.http :as http]
             [io.pedestal.http.route :as route]
             [io.pedestal.http.body-params :as body-params]
+            [io.pedestal.interceptor.error :as error-int]
             [ring.util.response :as ring-resp]
             [schema.core :as s]
             [clojure-bank.diplomat.http-in.account :as http-in.account]))
@@ -18,16 +19,69 @@
   [_]
   (ring-resp/response "Hello World! XXX"))
 
+(comment
+  (defn reply-hello [request]
+    {:status 200 :body (str "Hello, " (get-in request [:params :name]))}))
+
+(def hello-world
+  {:status 200
+   :body   {:message "hi lorena"}})
+
+(comment
+  (def attach-guid
+    {:name ::attach-guid
+     :enter (fn [context] (assoc context ::guid (java.util.UUID/randomUUID)))}))
+
+(def fist-interceptor
+  {:name ::first-interceptor
+   :enter (fn [ctx] (println "entering my first interceptor")
+            ctx)
+   :leave (fn [ctx] (println "leaving my first interceptor")
+            ctx)})
+
+;(def CommentRequest
+;  {(s/optional-key :parent-comment-id) long
+;   :text String
+;   :share-services [(s/enum :twitter :facebook :google)]})
+;
+;(def parse-comment-request
+;  (coerce/coercer CommentRequest coerce/json-coercion-matcher))
+;
+;(= (parse-comment-request
+;     {:parent-comment-id (int 2128123123)
+;      :text "This is awesome!"
+;      :share-services ["twitter" "facebook"]})
+;   {:parent-comment-id 2128123123
+;    :text "This is awesome!"
+;    :share-services [:twitter :facebook]})
+
+(def error-interceptor
+  {:name ::error-handler
+   :error (fn [ctx ex-info]
+            (println "cagou foi tudo")
+            (println ex-info)
+            (assoc ctx :response {:status 400 :body {:message "Another bad one"}}))})
+
+(def error-interceptor
+  (error-int/error-dispatch [ctx ex]
+                            [{:exception-type :clojure.lang.ExceptionInfo}]
+                            (assoc ctx :response {:status 400 :body ((ex-message ex) "Another bad one")})
+                            :else
+                            (assoc ctx :response {:status 401 :body {:message (ex-message ex)}})))
+
 ;; Defines "/" and "/about" routes with their associated :get handlers.
 ;; The interceptors defined after the verb map (e.g., {:get home-page}
 ;; apply to / and its children (/about).
-(def common-interceptors [(body-params/body-params) http/json-body])
+(def common-interceptors [(body-params/body-params) http/json-body fist-interceptor error-interceptor ])
 
 ;; Tabular routes
-(def routes #{["/"        :get  (conj common-interceptors `home-page)]
-              ["/about"   :get  (conj common-interceptors `about-page)]
-              ["/account/:account-id" :get  (conj common-interceptors
-                                      http-in.account/get-account) :route-name :get-account]
+(def routes #{["/" :get (conj common-interceptors `home-page)]
+              ["/about" :get (conj common-interceptors `about-page)]
+              ["/hello-world" :get (conj common-interceptors (fn [_]
+                                                               hello-world))
+               :route-name :get-hello-world]
+              ["/account/:account-id" :get (conj common-interceptors
+                                                 http-in.account/get-account) :route-name :get-account]
               ["/account" :post (conj common-interceptors
                                       http-in.account/create-account!) :route-name :create-account]})
 
